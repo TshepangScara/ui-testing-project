@@ -2,6 +2,10 @@
 
 Automated browser tests for [saucedemo.com](https://www.saucedemo.com/), a practice shop built for learning test automation. The tests use **Selenium** to drive a real Chrome browser and **pytest** to organise and run them.
 
+## Learning guide
+
+Start with [LEARNING_GUIDE.md](LEARNING_GUIDE.md) for the project walkthrough and the Selenium + pytest concepts used here.
+
 ## Quick start
 
 ```powershell

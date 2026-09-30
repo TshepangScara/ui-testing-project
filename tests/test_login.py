@@ -16,6 +16,12 @@ def test_locked_out_user_is_rejected(driver):
     assert "locked out" in page.error_text().lower()
 
 
+def test_logout_returns_to_login_page(inventory_page):
+    inventory_page.logout()
+    assert "saucedemo.com" in inventory_page.driver.current_url
+    assert LoginPage(inventory_page.driver).login_form_visible()
+
+
 @pytest.mark.parametrize(
     "username, password, expected",
     [

@@ -1,3 +1,4 @@
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -31,13 +32,18 @@ class CartPage:
         self.driver.find_elements(*self.REMOVE_BUTTONS)[0].click()
 
     def start_checkout(self):
-        self.driver.find_element(*self.CHECKOUT).click()
+        self.wait.until(EC.element_to_be_clickable(self.CHECKOUT)).click()
 
     def fill_details(self, first, last, postal):
-        self.driver.find_element(*self.FIRST_NAME).send_keys(first)
-        self.driver.find_element(*self.LAST_NAME).send_keys(last)
-        self.driver.find_element(*self.POSTAL_CODE).send_keys(postal)
-        self.driver.find_element(*self.CONTINUE).click()
+        self.wait.until(EC.visibility_of_element_located(self.FIRST_NAME)).send_keys(first)
+        self.wait.until(EC.visibility_of_element_located(self.LAST_NAME)).send_keys(last)
+        self.wait.until(EC.visibility_of_element_located(self.POSTAL_CODE)).send_keys(postal)
+        self.wait.until(EC.element_to_be_clickable(self.CONTINUE)).click()
+
+        try:
+            self.wait.until(EC.url_contains("checkout-step-two"))
+        except TimeoutException:
+            self.wait.until(EC.visibility_of_element_located(self.ERROR))
 
     def finish(self):
         self.wait.until(EC.element_to_be_clickable(self.FINISH)).click()

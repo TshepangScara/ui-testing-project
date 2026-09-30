@@ -1,9 +1,11 @@
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import Select, WebDriverWait
+from selenium.webdriver.support.ui import Select
+
+from pages.base_page import BasePage
 
 
-class InventoryPage:
+class InventoryPage(BasePage):
     ITEMS = (By.CSS_SELECTOR, ".inventory_item")
     ITEM_NAMES = (By.CSS_SELECTOR, ".inventory_item_name")
     ITEM_PRICES = (By.CSS_SELECTOR, ".inventory_item_price")
@@ -12,10 +14,11 @@ class InventoryPage:
     CART_BADGE = (By.CSS_SELECTOR, ".shopping_cart_badge")
     CART_LINK = (By.CSS_SELECTOR, ".shopping_cart_link")
     SORT = (By.CSS_SELECTOR, "[data-test='product-sort-container']")
+    BURGER_MENU = (By.ID, "react-burger-menu-btn")
+    LOGOUT_LINK = (By.ID, "logout_sidebar_link")
 
     def __init__(self, driver):
-        self.driver = driver
-        self.wait = WebDriverWait(driver, 10)
+        super().__init__(driver)
         self.wait.until(EC.visibility_of_element_located(self.ITEMS))
 
     def item_count(self):
@@ -47,3 +50,11 @@ class InventoryPage:
 
         self.driver.find_element(*self.CART_LINK).click()
         return CartPage(self.driver)
+
+    def logout(self):
+        from pages.login_page import LoginPage
+
+        self.click(self.BURGER_MENU)
+        self.wait.until(EC.element_to_be_clickable(self.LOGOUT_LINK)).click()
+        self.wait.until(EC.url_contains("saucedemo.com"))
+        return LoginPage(self.driver)
