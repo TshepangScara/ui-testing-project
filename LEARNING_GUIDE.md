@@ -185,6 +185,7 @@ def test_some_user_flow(inventory_page):
     assert cart.item_count() == 1
 ```
 
+<!--
 ## 9. Practice tasks
 
 Try these on your own:
@@ -206,3 +207,4 @@ The best next topics are:
 - CI and GitHub Actions for automation
 
 This project is a strong base for learning real UI automation.
+-->
