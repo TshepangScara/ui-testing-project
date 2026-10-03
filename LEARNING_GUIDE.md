@@ -169,12 +169,11 @@ Fix: assert on page content and URLs.
 
 ## 8. How to build more tests
 
-A good next test might be:
+Logout, every missing checkout field, the checkout totals and the different users are already covered. Good next tests might be:
 
-- logout from the menu
-- continue checkout with missing last name
-- verify item total in the cart
-- test different users
+- opening the inventory page while logged out redirects to login
+- the "Continue Shopping" button returns from the cart to the inventory
+- sorting by price high to low
 
 Use this pattern:
 

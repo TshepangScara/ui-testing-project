@@ -28,6 +28,8 @@ pytest tests/test_cart.py::test_full_checkout_flow
 pytest -k checkout
 ```
 
+Every run writes an HTML report to `report/report.html` (git-ignored). Open it in a browser to see each test's result, with a screenshot attached to any failure.
+
 Requirements: Python 3.10+ and Google Chrome. You do not need to install chromedriver; Selenium downloads a matching one automatically.
 
 ## Project layout
@@ -44,8 +46,10 @@ ui-testing-project/
 ├── tests/                 # the tests: what we expect to happen
 │   ├── test_login.py
 │   ├── test_inventory.py
-│   └── test_cart.py
+│   ├── test_cart.py
+│   └── test_users.py      # same flows run as each saucedemo user
 ├── screenshots/           # created on failure, git-ignored
+├── report/                # HTML report from the last run, git-ignored
 └── .github/workflows/tests.yml   # CI
 ```
 
@@ -105,7 +109,8 @@ It returns as soon as the condition holds, so tests are fast when the page is fa
 A pytest **fixture** is setup (and teardown) code that a test receives by naming it as a parameter. Everything before `yield` is setup; everything after is teardown, which runs even if the test fails.
 
 - **`driver`**: starts Chrome, hands it to the test, then closes it. Each test gets a fresh browser, so tests cannot interfere with each other.
-- **`inventory_page`**: builds on `driver`, logs in as `standard_user`, and returns an `InventoryPage`. Tests that need a logged-in user just ask for it:
+- **`login_as`**: builds on `driver` and returns a *function*: `login_as("problem_user")` logs in as that user and returns an `InventoryPage`. A fixture that returns a function is called a *factory fixture*; use one when the test needs to choose a setup value.
+- **`inventory_page`**: shorthand for `login_as("standard_user")`. Tests that need a logged-in user just ask for it:
 
 ```python
 def test_inventory_lists_six_products(inventory_page):
@@ -127,20 +132,27 @@ Fixtures can depend on other fixtures (`inventory_page` uses `driver`), and pyte
 def test_invalid_login_shows_error(driver, username, password, expected): ...
 ```
 
-pytest reports each row as its own test, so you see exactly which case failed.
+pytest reports each row as its own test, so you see exactly which case failed. The checkout form uses the same idea: `test_checkout_requires_all_details` in [tests/test_cart.py](tests/test_cart.py) leaves each field blank in turn.
 
-### 6. Screenshots on failure
+### 6. Known bugs and expected failures
 
-When a test fails you usually want to see what the browser was showing. [conftest.py](conftest.py) does this in two steps:
+saucedemo has users that are broken on purpose: `problem_user` can't sort or check out, `error_user` hits crashes, and `visual_user` shows wrong prices. [tests/test_users.py](tests/test_users.py) runs the same flows as every user and marks the known bugs with `xfail` ("expected to fail"):
 
-1. A hook, `pytest_runtest_makereport`, runs after each test phase and stores the result on the test (`item.rep_call`).
-2. The `driver` fixture's teardown checks `rep_call.failed` and, if so, saves a PNG into `screenshots/` named after the test.
+```python
+pytest.param("problem_user", marks=pytest.mark.xfail(reason="sorting does nothing", strict=True))
+```
 
-The hook is needed because a fixture cannot otherwise tell whether its test passed.
+The suite stays green while the bugs exist, and the report still lists them as `xfailed` with the reason. `strict=True` means that if a bug is ever fixed, the test *unexpectedly passes* and turns red, reminding you to remove the marker. Without `strict`, a stale marker could hide a real regression later.
 
-### 7. Continuous integration
+### 7. Screenshots and the HTML report
 
-[.github/workflows/tests.yml](.github/workflows/tests.yml) tells GitHub to run the suite automatically on every push to `master` and on every pull request: check out the code, install Python and the dependencies, run `pytest`. If tests fail, the `screenshots/` folder is attached to the run as a downloadable artifact. GitHub's Ubuntu runners include Chrome, so nothing extra is needed. Headless mode (the default here) is what makes this work on a machine with no display.
+When a test fails you usually want to see what the browser was showing. [conftest.py](conftest.py) uses a hook, `pytest_runtest_makereport`, which pytest calls after each phase of each test. When the test body (the `call` phase) fails, the hook grabs the test's `driver`, takes a screenshot while the browser is still open, saves it to `screenshots/`, and embeds it in the HTML report.
+
+The report itself comes from the `pytest-html` plugin, switched on in [pytest.ini](pytest.ini) with `--html=report/report.html --self-contained-html` (one file, images included, easy to share).
+
+### 8. Continuous integration
+
+[.github/workflows/tests.yml](.github/workflows/tests.yml) tells GitHub to run the suite automatically on every push to `master` and on every pull request: check out the code, install Python and the dependencies, run `pytest`. Every run attaches the HTML report as a downloadable artifact, and failed runs also attach the `screenshots/` folder. GitHub's Ubuntu runners include Chrome, so nothing extra is needed. Headless mode (the default here) is what makes this work on a machine with no display.
 
 ## Writing a new test
 
@@ -167,10 +179,9 @@ def test_removing_item_updates_cart_badge(inventory_page):
 | `ElementClickInterceptedException` | Something (a popup, overlay) covers the element. |
 | Test passes alone but fails in the full run | Tests are sharing state. Each test should set up everything it needs. |
 | First run is slow | Selenium is downloading chromedriver. Later runs reuse it. |
+| Typing silently does nothing after login | Chrome's password-leak warning is stealing focus. [conftest.py](conftest.py) disables it; keep those `prefs` if you copy the setup elsewhere. |
 
 ## Ideas for next steps
 
-- Test the other saucedemo users (`problem_user`, `performance_glitch_user`) to see how the suite handles a misbehaving site.
-- Add a `logout` test and a check that inventory pages redirect to login when logged out.
+- Add a check that inventory pages redirect to login when logged out.
 - Run tests in parallel with `pytest-xdist` (`pytest -n 4`) to cut the run time.
-- Generate an HTML report with `pytest-html`.

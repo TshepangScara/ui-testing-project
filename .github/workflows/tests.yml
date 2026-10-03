@@ -21,6 +21,14 @@ jobs:
       # ubuntu-latest ships with Chrome; Selenium Manager fetches the matching driver
       - run: pytest
 
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: report/
+          if-no-files-found: ignore
+
       - name: Upload failure screenshots
         if: failure()
         uses: actions/upload-artifact@v4

@@ -16,6 +16,10 @@ class CartPage:
     FINISH = (By.ID, "finish")
     COMPLETE_HEADER = (By.CSS_SELECTOR, ".complete-header")
     ERROR = (By.CSS_SELECTOR, "[data-test='error']")
+    ITEM_PRICES = (By.CSS_SELECTOR, ".inventory_item_price")
+    SUBTOTAL = (By.CSS_SELECTOR, "[data-test='subtotal-label']")
+    TAX = (By.CSS_SELECTOR, "[data-test='tax-label']")
+    TOTAL = (By.CSS_SELECTOR, "[data-test='total-label']")
 
     def __init__(self, driver):
         self.driver = driver
@@ -44,6 +48,23 @@ class CartPage:
             self.wait.until(EC.url_contains("checkout-step-two"))
         except TimeoutException:
             self.wait.until(EC.visibility_of_element_located(self.ERROR))
+
+    def item_prices(self):
+        return [float(e.text.lstrip("$")) for e in self.driver.find_elements(*self.ITEM_PRICES)]
+
+    def _amount(self, locator):
+        # Labels read like "Item total: $39.98"; keep only the number after the "$"
+        text = self.wait.until(EC.visibility_of_element_located(locator)).text
+        return float(text.split("$")[-1])
+
+    def subtotal(self):
+        return self._amount(self.SUBTOTAL)
+
+    def tax(self):
+        return self._amount(self.TAX)
+
+    def total(self):
+        return self._amount(self.TOTAL)
 
     def finish(self):
         self.wait.until(EC.element_to_be_clickable(self.FINISH)).click()

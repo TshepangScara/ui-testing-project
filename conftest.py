@@ -1,8 +1,10 @@
+import base64
 import re
 from pathlib import Path
 
 import pytest
 from selenium import webdriver
+from selenium.common.exceptions import WebDriverException
 
 from pages.login_page import LoginPage
 
@@ -15,10 +17,27 @@ def pytest_addoption(parser):
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
-    # Attach each phase's report to the test item so fixtures can see if the test failed
+    # Runs after each test phase. When the test body fails, screenshot the browser
+    # while it is still open, save it to screenshots/ and embed it in the HTML report
     outcome = yield
     report = outcome.get_result()
-    setattr(item, f"rep_{report.when}", report)
+    drv = item.funcargs.get("driver")
+    if report.when != "call" or not report.failed or drv is None:
+        return
+
+    try:
+        png = drv.get_screenshot_as_png()
+    except WebDriverException:
+        return  # e.g. a JavaScript alert is open and blocks screenshots
+    SCREENSHOT_DIR.mkdir(exist_ok=True)
+    name = re.sub(r"[^\w.-]+", "_", item.nodeid)
+    (SCREENSHOT_DIR / f"{name}.png").write_bytes(png)
+
+    pytest_html = item.config.pluginmanager.getplugin("html")
+    if pytest_html is not None:
+        extras = getattr(report, "extras", [])
+        extras.append(pytest_html.extras.png(base64.b64encode(png).decode()))
+        report.extras = extras
 
 
 @pytest.fixture
@@ -37,20 +56,22 @@ def driver(request):
     # Selenium Manager (built into selenium 4.6+) fetches a matching chromedriver
     drv = webdriver.Chrome(options=options)
     yield drv
-
-    # Teardown runs after the test, so rep_call is set by now
-    report = getattr(request.node, "rep_call", None)
-    if report is not None and report.failed:
-        SCREENSHOT_DIR.mkdir(exist_ok=True)
-        name = re.sub(r"[^\w.-]+", "_", request.node.nodeid)
-        drv.save_screenshot(str(SCREENSHOT_DIR / f"{name}.png"))
     drv.quit()
 
 
 @pytest.fixture
-def inventory_page(driver):
-    """A browser already logged in as standard_user and sitting on the inventory page."""
+def login_as(driver):
+    """Returns a function that logs in as any user and returns the inventory page."""
     from pages.inventory_page import InventoryPage
 
-    LoginPage(driver).open().login("standard_user", "secret_sauce")
-    return InventoryPage(driver)
+    def _login(username):
+        LoginPage(driver).open().login(username, "secret_sauce")
+        return InventoryPage(driver)
+
+    return _login
+
+
+@pytest.fixture
+def inventory_page(login_as):
+    """A browser already logged in as standard_user and sitting on the inventory page."""
+    return login_as("standard_user")
