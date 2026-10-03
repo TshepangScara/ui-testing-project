@@ -56,5 +56,6 @@ class InventoryPage(BasePage):
 
         self.click(self.BURGER_MENU)
         self.wait.until(EC.element_to_be_clickable(self.LOGOUT_LINK)).click()
-        self.wait.until(EC.url_contains("saucedemo.com"))
+        # Inventory URLs also contain "saucedemo.com", so wait for the login button instead
+        self.wait.until(EC.visibility_of_element_located(LoginPage.SUBMIT))
         return LoginPage(self.driver)

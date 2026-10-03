@@ -27,6 +27,13 @@ def driver(request):
     if not request.config.getoption("--headed"):
         options.add_argument("--headless=new")
     options.add_argument("--window-size=1280,900")
+    # Chrome flags "secret_sauce" as a breached password and pops up a dialog that
+    # steals keyboard focus, so later send_keys calls silently go nowhere
+    options.add_experimental_option("prefs", {
+        "credentials_enable_service": False,
+        "profile.password_manager_enabled": False,
+        "profile.password_manager_leak_detection": False,
+    })
     # Selenium Manager (built into selenium 4.6+) fetches a matching chromedriver
     drv = webdriver.Chrome(options=options)
     yield drv
