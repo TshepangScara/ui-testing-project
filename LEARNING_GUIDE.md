@@ -80,8 +80,9 @@ Pytest fixtures are the reusable setup code in the project.
 In `conftest.py`:
 
 - `driver` creates a browser for each test
-- `inventory_page` logs in and returns the ready inventory page
-- failure screenshots are captured automatically
+- `login_as` logs in as any user you name and returns the inventory page
+- `inventory_page` is `login_as("standard_user")`, the common case
+- failure screenshots are captured automatically and added to the HTML report
 
 This gives every test an isolated browser session.
 
@@ -115,10 +116,17 @@ The `CartPage` handles:
 - starting checkout
 - entering customer details
 - continuing to the next step
+- reading the order subtotal, tax and total
 - placing the order
 - reading confirmation text
 
 This is a good example of how page objects model real user actions.
+
+All three page objects inherit from `BasePage`, which provides `click`, `type`, `text_of` and `is_visible`. Each helper waits for the element before touching it, so waiting is built in rather than something every method has to remember.
+
+### Different users
+
+`tests/test_users.py` runs the same flows as each SauceDemo user. Some users are broken on purpose, and their failures are marked `xfail` (expected to fail) with a reason, so the suite stays green while still recording every known bug.
 
 ## 6. Important testing decisions in this project
 

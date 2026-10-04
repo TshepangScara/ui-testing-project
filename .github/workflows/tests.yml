@@ -19,7 +19,7 @@ jobs:
       - run: pip install -r requirements.txt
 
       # ubuntu-latest ships with Chrome; Selenium Manager fetches the matching driver
-      - run: pytest
+      - run: pytest -n 4
 
       - name: Upload HTML report
         if: always()

@@ -17,6 +17,9 @@ pip install -r requirements.txt
 # run everything (headless, no window)
 pytest
 
+# run everything in parallel, one browser per CPU core (about 3x faster)
+pytest -n auto
+
 # watch the browser while it runs
 pytest --headed
 
@@ -40,6 +43,7 @@ ui-testing-project/
 ├── pytest.ini             # pytest settings
 ├── requirements.txt       # dependencies
 ├── pages/                 # page objects: how to talk to each page
+│   ├── base_page.py       # shared wait-then-act helpers
 │   ├── login_page.py
 │   ├── inventory_page.py
 │   └── cart_page.py       # also handles the checkout steps
@@ -77,6 +81,8 @@ LoginPage(driver).open().login("standard_user", "secret_sauce")
 If the site changes the login button's id, you fix it in **one place** ([pages/login_page.py](pages/login_page.py)) instead of in every test. Each page class keeps its locators as class constants at the top (`USERNAME = (By.ID, "user-name")`) and exposes methods named after user actions (`login`, `add_first`, `open_cart`).
 
 Methods that navigate to a new page return that page's object (`open_cart()` returns a `CartPage`), so tests chain naturally.
+
+Every page object inherits from `BasePage` ([pages/base_page.py](pages/base_page.py)), whose helpers (`click`, `type`, `text_of`, `is_visible`) always wait for the element first. Page objects use those helpers instead of raw Selenium calls, so no page can forget to wait.
 
 ### 2. Locators
 
@@ -152,7 +158,7 @@ The report itself comes from the `pytest-html` plugin, switched on in [pytest.in
 
 ### 8. Continuous integration
 
-[.github/workflows/tests.yml](.github/workflows/tests.yml) tells GitHub to run the suite automatically on every push to `master` and on every pull request: check out the code, install Python and the dependencies, run `pytest`. Every run attaches the HTML report as a downloadable artifact, and failed runs also attach the `screenshots/` folder. GitHub's Ubuntu runners include Chrome, so nothing extra is needed. Headless mode (the default here) is what makes this work on a machine with no display.
+[.github/workflows/tests.yml](.github/workflows/tests.yml) tells GitHub to run the suite automatically on every push to `master` and on every pull request: check out the code, install Python and the dependencies, run `pytest`. It runs four browsers at once (`pytest -n 4`, from the `pytest-xdist` plugin), which is safe because every test gets its own browser and shares nothing. Every run attaches the HTML report as a downloadable artifact, and failed runs also attach the `screenshots/` folder. GitHub's Ubuntu runners include Chrome, so nothing extra is needed. Headless mode (the default here) is what makes this work on a machine with no display.
 
 ## Writing a new test
 
@@ -184,4 +190,4 @@ def test_removing_item_updates_cart_badge(inventory_page):
 ## Ideas for next steps
 
 - Add a check that inventory pages redirect to login when logged out.
-- Run tests in parallel with `pytest-xdist` (`pytest -n 4`) to cut the run time.
+- Run the suite in Firefox as well as Chrome by parametrizing the `driver` fixture.

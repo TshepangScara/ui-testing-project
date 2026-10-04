@@ -3,6 +3,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 
 class BasePage:
+    """Shared helpers for every page object. Each one waits before acting."""
+
     TIMEOUT = 10
 
     def __init__(self, driver):
@@ -19,6 +21,9 @@ class BasePage:
         element = self.wait.until(EC.visibility_of_element_located(locator))
         element.clear()
         element.send_keys(value)
+
+    def text_of(self, locator):
+        return self.wait.until(EC.visibility_of_element_located(locator)).text
 
     def is_visible(self, locator):
         try:

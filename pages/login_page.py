@@ -23,7 +23,7 @@ class LoginPage(BasePage):
         self.click(self.SUBMIT)
 
     def error_text(self):
-        return self.wait.until(EC.visibility_of_element_located(self.ERROR)).text
+        return self.text_of(self.ERROR)
 
     def inventory_visible(self):
         return self.wait.until(EC.visibility_of_element_located(self.INVENTORY)).is_displayed()

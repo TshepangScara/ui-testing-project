@@ -8,7 +8,7 @@ Before writing anything, we checked three things:
 
 ```powershell
 venv\Scripts\python.exe --version
-venv\Scripts\python.exe -m pip list   # confirm selenium/pytest/webdriver-manager are actually installed
+venv\Scripts\python.exe -m pip list   # confirm selenium and pytest are actually installed
 ```
 
 ...and whether Chrome was installed. This matters because `requirements.txt` listing a package doesn't mean it's *installed* — someone has to have run `pip install -r requirements.txt` into the venv. And Selenium doesn't test anything on its own; it drives a real browser, so one has to exist on the machine. Checking first avoids writing code against tools that turn out not to be there.
@@ -80,17 +80,21 @@ def inventory_page(driver):
 
 A test failing with `TimeoutException: element not found` doesn't tell you *what the page actually looked like*. So we added: on failure, save a screenshot.
 
-The tricky part is that a fixture's teardown code (the part after `yield`) doesn't automatically know whether the test it served passed or failed — pytest doesn't hand that to fixtures by default. The fix is a **hook**:
+The tricky part is that a fixture's teardown code (the part after `yield`) doesn't automatically know whether the test it served passed or failed — pytest doesn't hand that to fixtures by default. The fix is a **hook**, a function pytest calls at fixed moments:
 
 ```python
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     outcome = yield
     report = outcome.get_result()
-    setattr(item, f"rep_{report.when}", report)
+    drv = item.funcargs.get("driver")
+    if report.when != "call" or not report.failed or drv is None:
+        return
+    png = drv.get_screenshot_as_png()
+    ...  # save to screenshots/ and embed in the HTML report
 ```
 
-This runs after every test phase and stamps the result onto the test object itself (`item.rep_call`). Then the `driver` fixture's teardown can just check `request.node.rep_call.failed` and act on it. We verified it actually worked by writing a throwaway test that does `assert False`, running it, confirming a PNG landed in `screenshots/`, then deleting that throwaway test — we didn't just trust the code compiled.
+This runs after every test phase. When the test body (`call`) has failed, it borrows the test's own browser (`item.funcargs["driver"]`) while it is still open and takes the screenshot. (An earlier version saved the result on the test and let the `driver` fixture take the screenshot during teardown; doing it in the hook means it can also attach the image to the HTML report.) We verified it actually worked by writing a throwaway test that does `assert False`, running it, confirming a PNG landed in `screenshots/`, then deleting that throwaway test — we didn't just trust the code compiled.
 
 **Lesson:** when you can't observe something directly (does teardown know about a failure?), find the mechanism that exposes it (a hook), and *test the test infrastructure itself* before trusting it.
 
@@ -101,6 +105,34 @@ The workflow file tells GitHub: on every push or pull request, spin up a Linux m
 This is the payoff of everything before it: because we never used a fixed sleep, always waited explicitly, and ran headless by default, the exact same test suite runs unmodified on a headless Ubuntu machine we've never touched. If the tests had depended on a visible window or a hardcoded pause, this step would have needed rework.
 
 **Lesson:** decisions made early (headless-by-default, explicit waits) determine whether "just run it in CI" is trivial or painful later.
+
+## Step 5: Debug a failure you can't see (the Chrome popup)
+
+Later, two tests started failing: checkout couldn't continue, and logout did nothing. The failure screenshot showed the checkout form with only "Test" in First Name; Last Name and Postal Code were empty, as if the typing had vanished.
+
+Rather than adding sleeps and hoping, we narrowed it down one fact at a time:
+
+1. **Is the field focused?** Yes, `document.activeElement` was the input.
+2. **Does the page receive key events?** We attached JavaScript listeners for `keydown`, `input`, and so on. Only `focus` fired; not a single key event arrived, even at the `window` level.
+3. **Is the site's code blocking input?** We read the site's JavaScript for the form. It was ordinary React, nothing special for `standard_user`.
+
+So the keystrokes weren't reaching the page at all, and only after login. That pointed at the browser itself: Chrome recognises `secret_sauce` as a password from a data breach and opens a "Change your password" dialog after login. In headless mode you never see it, but it owns the keyboard. Disabling the password manager in the `driver` fixture's Chrome options fixed both tests.
+
+**Lesson:** when a test fails strangely, collect evidence (screenshots, event logs, the page's own code) until the cause is a fact, not a guess. A `time.sleep()` here would have hidden nothing and fixed nothing.
+
+## Step 6: Grow coverage with parametrize, and handle known bugs
+
+With the suite stable, we widened it without writing many new functions:
+
+- One checkout test, parametrized, now leaves each required field blank in turn.
+- A **factory fixture**, `login_as`, returns a function, so a test can log in as whichever user it needs. `inventory_page` became a one-line wrapper around it.
+- [tests/test_users.py](tests/test_users.py) runs four flows as all five saucedemo users: 20 tests from 4 functions.
+
+Some users are broken on purpose, so 8 of those tests fail. Deleting them would throw away useful checks; leaving them red would make the suite useless (people stop looking at a build that is always red). Instead each known bug is marked `xfail(strict=True)` with a reason. The build stays green, the report lists every known bug, and if a bug is ever fixed the test passes unexpectedly and goes red, so the marker can't go stale.
+
+Finally, `pytest-html` produces a report with failure screenshots embedded, and `pytest-xdist` (`pytest -n auto`) runs several browsers at once, cutting the run from about 6 minutes to 2. Parallel running only works because every test has always had its own browser and shared nothing; that decision from step 1 paid off again.
+
+**Lesson:** a suite should tell the truth. Green has to mean "nothing unexpected", which is why known bugs are recorded, not deleted or ignored.
 
 ## The shape of the whole thing
 
@@ -116,9 +148,18 @@ login (proves the pattern) ──► inventory/cart (repeats the pattern)
                       │
                       ▼
               CI (run it automatically)
+                      │
+                      ▼
+       debug from evidence (the Chrome popup)
+                      │
+                      ▼
+   wider coverage: parametrize, users, known bugs
+                      │
+                      ▼
+       HTML report + parallel runs
 ```
 
-Each step only added *one* new idea on top of a pattern that already worked: page objects → fixtures composing → hooks → automation. That's generally how to grow a test suite — get one thing solid, then repeat its shape rather than inventing a new one each time.
+Each step only added *one* new idea on top of a pattern that already worked: page objects → fixtures composing → hooks → automation → evidence-based debugging → parametrized coverage. That's generally how to grow a test suite — get one thing solid, then repeat its shape rather than inventing a new one each time.
 
 ## Try it yourself
 
@@ -126,4 +167,5 @@ The fastest way to make this stick: break something on purpose and watch the pie
 
 1. In `pages/login_page.py`, change `USERNAME = (By.ID, "user-name")` to `(By.ID, "wrong-id")`. Run `pytest tests/test_login.py`. Read the error — it should be a `NoSuchElementException`, and it should point at the page object, not the test.
 2. Undo that, then in `pages/inventory_page.py` temporarily make `add_first` not re-query elements (loop over a list captured once) and add two items — see whether it still works, and think about why re-querying mattered.
-3. Write one new test yourself: log in as `problem_user` (a saucedemo account that renders broken images) and assert something about the page. You'll need no new concepts — just reuse `LoginPage` and `InventoryPage` the way the existing tests do.
+3. In [tests/test_users.py](tests/test_users.py), delete the `"problem_user"` line from one test's known bugs and run that file. Watch the test fail for real, then put the line back and watch it become `xfailed`.
+4. Write one new test yourself: `problem_user` shows the same broken image for every product. Use `login_as("problem_user")` and assert that the product images are all different (you'll need a small new method on `InventoryPage`). Mark it as a known bug, the same way the other user tests do.
