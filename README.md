@@ -1,193 +1,99 @@
-# UI Testing Project
+# Selenium + pytest UI Test Automation Framework
 
-Automated browser tests for [saucedemo.com](https://www.saucedemo.com/), a practice shop built for learning test automation. The tests use **Selenium** to drive a real Chrome browser and **pytest** to organise and run them.
+[![UI tests](https://github.com/TshepangScara/ui-testing-project/actions/workflows/tests.yml/badge.svg)](https://github.com/TshepangScara/ui-testing-project/actions/workflows/tests.yml)
 
-## Learning guide
+End-to-end UI test automation for [saucedemo.com](https://www.saucedemo.com/), a demo e-commerce site. Built with **Python, Selenium WebDriver 4 and pytest**, structured as a Page Object Model and run in **GitHub Actions CI** on every push and pull request.
 
-Start with [LEARNING_GUIDE.md](LEARNING_GUIDE.md) for the project walkthrough and the Selenium + pytest concepts used here.
+**38 test cases** cover login, inventory, cart and checkout. **8 known defects** across SauceDemo's deliberately broken user types are documented as strict `xfail` tests.
 
-## Quick start
+## Tech stack
+
+| Area | Tools |
+|---|---|
+| Language | Python 3.13 |
+| Browser automation | Selenium WebDriver 4 (Selenium Manager, headless Chrome) |
+| Test runner | pytest, pytest-xdist (parallel runs), pytest-html (reports) |
+| Design | Page Object Model, explicit waits, fixtures, parametrization |
+| CI | GitHub Actions |
+
+## Test coverage
+
+| Area | What is tested |
+|---|---|
+| Login | Valid login, locked-out user, logout, invalid credentials and empty fields (parametrized) |
+| Inventory | Product count, sort by price (low to high), sort by name (Z to A) |
+| Cart | Cart badge updates, cart contents, removing items |
+| Checkout | Full purchase flow, required-field validation (parametrized), order total maths |
+| User types | Sorting, cart, checkout and pricing flows run as all 5 SauceDemo users |
+
+## Defects found
+
+SauceDemo ships users that are broken on purpose. The suite runs the same flows as every user and records each failure as a strict `xfail` with the reason:
+
+| User | Defect |
+|---|---|
+| `problem_user` | Sorting does nothing |
+| `problem_user` | Remove button does nothing |
+| `problem_user` | Typing in Last Name overwrites First Name, so checkout can't continue |
+| `problem_user` | Checkout can't get past the details step |
+| `error_user` | Sorting raises a "Sorting is broken!" alert |
+| `error_user` | Remove button does nothing |
+| `error_user` | Last Name field crashes and Finish does nothing |
+| `visual_user` | Inventory shows different prices than checkout charges |
+
+`strict=True` means a fixed defect turns the build red, so stale markers can't hide a regression.
+
+## Design decisions
+
+- **Page Object Model.** Each page class holds its locators and exposes user actions (`login`, `add_first`, `open_cart`). Tests state intent; a locator change is fixed in one place.
+- **One wait-aware base class.** Every page object inherits from `BasePage`, whose `click`, `type`, `text_of` and `is_visible` helpers wait with `WebDriverWait` and expected conditions. No `time.sleep()` anywhere.
+- **Stable locators.** IDs and `data-test` attributes first, CSS selectors where needed, no positional chains.
+- **Isolated tests.** The `driver` fixture gives every test a fresh browser, which is what makes parallel runs safe.
+- **Factory fixture.** `login_as("problem_user")` returns a logged-in `InventoryPage` for any user, so the same test runs across user types.
+- **Evidence on failure.** A `pytest_runtest_makereport` hook takes a screenshot when a test fails and embeds it in the self-contained HTML report.
+
+## Continuous integration
+
+[`.github/workflows/tests.yml`](.github/workflows/tests.yml) runs on every push to `master` and every pull request: it installs dependencies, runs the suite headless across 4 parallel workers (`pytest -n 4`), uploads the HTML report as a build artifact, and uploads failure screenshots when a run fails.
+
+## Run it locally
+
+Requirements: Python 3.10+ and Google Chrome. Selenium Manager downloads the matching driver automatically.
 
 ```powershell
-# one-time setup (from the project folder)
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 
-# run everything (headless, no window)
-pytest
-
-# run everything in parallel, one browser per CPU core (about 3x faster)
-pytest -n auto
-
-# watch the browser while it runs
-pytest --headed
-
-# run one file, or one test
-pytest tests/test_login.py
-pytest tests/test_cart.py::test_full_checkout_flow
-
-# run tests whose name contains a word
-pytest -k checkout
+pytest                 # full suite, headless
+pytest -n auto         # parallel, one browser per CPU core
+pytest --headed        # watch the browser
+pytest -k checkout     # tests whose name contains "checkout"
 ```
 
-Every run writes an HTML report to `report/report.html` (git-ignored). Open it in a browser to see each test's result, with a screenshot attached to any failure.
+Each run writes `report/report.html`, with a screenshot attached to every failure.
 
-Requirements: Python 3.10+ and Google Chrome. You do not need to install chromedriver; Selenium downloads a matching one automatically.
-
-## Project layout
+## Project structure
 
 ```
 ui-testing-project/
-├── conftest.py            # shared fixtures and hooks (browser, login, screenshots)
-├── pytest.ini             # pytest settings
-├── requirements.txt       # dependencies
-├── pages/                 # page objects: how to talk to each page
+├── conftest.py            # driver and login fixtures, screenshot-on-failure hook
+├── pytest.ini             # pytest and report settings
+├── requirements.txt       # pinned dependencies
+├── pages/                 # page objects
 │   ├── base_page.py       # shared wait-then-act helpers
 │   ├── login_page.py
 │   ├── inventory_page.py
-│   └── cart_page.py       # also handles the checkout steps
-├── tests/                 # the tests: what we expect to happen
+│   └── cart_page.py       # cart and checkout steps
+├── tests/
 │   ├── test_login.py
 │   ├── test_inventory.py
 │   ├── test_cart.py
-│   └── test_users.py      # same flows run as each saucedemo user
-├── screenshots/           # created on failure, git-ignored
-├── report/                # HTML report from the last run, git-ignored
-└── .github/workflows/tests.yml   # CI
+│   └── test_users.py      # same flows run as each SauceDemo user
+└── .github/workflows/tests.yml
 ```
 
-The key idea is the split between **`pages/`** and **`tests/`**:
+## Next steps
 
-- A *page object* knows **how** to use a page: which elements exist and how to click them.
-- A *test* says **what** should happen, and reads almost like plain English.
-
-## The core concepts
-
-### 1. Page Object Model
-
-Compare a test written without and with a page object:
-
-```python
-# Without: the test is full of selector details
-driver.find_element(By.ID, "user-name").send_keys("standard_user")
-driver.find_element(By.ID, "password").send_keys("secret_sauce")
-driver.find_element(By.ID, "login-button").click()
-
-# With: the test states intent
-LoginPage(driver).open().login("standard_user", "secret_sauce")
-```
-
-If the site changes the login button's id, you fix it in **one place** ([pages/login_page.py](pages/login_page.py)) instead of in every test. Each page class keeps its locators as class constants at the top (`USERNAME = (By.ID, "user-name")`) and exposes methods named after user actions (`login`, `add_first`, `open_cart`).
-
-Methods that navigate to a new page return that page's object (`open_cart()` returns a `CartPage`), so tests chain naturally.
-
-Every page object inherits from `BasePage` ([pages/base_page.py](pages/base_page.py)), whose helpers (`click`, `type`, `text_of`, `is_visible`) always wait for the element first. Page objects use those helpers instead of raw Selenium calls, so no page can forget to wait.
-
-### 2. Locators
-
-A locator is a `(strategy, value)` pair that tells Selenium how to find an element. This project uses:
-
-| Strategy | Example | Use when |
-|---|---|---|
-| `By.ID` | `(By.ID, "login-button")` | the element has a unique id (most stable) |
-| `By.CSS_SELECTOR` | `(By.CSS_SELECTOR, "[data-test='error']")` | you need attributes or class combinations |
-| `By.CLASS_NAME` | `(By.CLASS_NAME, "inventory_list")` | a single, meaningful class |
-
-Prefer ids and `data-test` attributes: they exist for testing and rarely change. Avoid long chains of positions (`div > div > div:nth-child(3)`), which break when the layout shifts.
-
-The selector `button[data-test^='add-to-cart']` uses `^=`, meaning "attribute *starts with*", because each product's button has a different suffix (`add-to-cart-sauce-labs-backpack`).
-
-### 3. Waiting
-
-Web pages load asynchronously, so an element may not exist the instant you look for it. Never use `time.sleep()`. Use an **explicit wait**, which polls until a condition is true or a timeout (10s here) expires:
-
-```python
-self.wait.until(EC.visibility_of_element_located(self.ERROR))
-```
-
-It returns as soon as the condition holds, so tests are fast when the page is fast and still reliable when it is slow. Missing waits are the most common cause of "flaky" tests that pass sometimes and fail others.
-
-`find_element` (singular) raises an error if nothing matches. `find_elements` (plural) returns a possibly-empty list, which is why `cart_count()` uses it: the cart badge disappears entirely when the cart is empty.
-
-### 4. Fixtures
-
-A pytest **fixture** is setup (and teardown) code that a test receives by naming it as a parameter. Everything before `yield` is setup; everything after is teardown, which runs even if the test fails.
-
-- **`driver`**: starts Chrome, hands it to the test, then closes it. Each test gets a fresh browser, so tests cannot interfere with each other.
-- **`login_as`**: builds on `driver` and returns a *function*: `login_as("problem_user")` logs in as that user and returns an `InventoryPage`. A fixture that returns a function is called a *factory fixture*; use one when the test needs to choose a setup value.
-- **`inventory_page`**: shorthand for `login_as("standard_user")`. Tests that need a logged-in user just ask for it:
-
-```python
-def test_inventory_lists_six_products(inventory_page):
-    assert inventory_page.item_count() == 6
-```
-
-Fixtures can depend on other fixtures (`inventory_page` uses `driver`), and pytest wires them together by name.
-
-### 5. Parametrized tests
-
-[tests/test_login.py](tests/test_login.py) runs one test function against several inputs:
-
-```python
-@pytest.mark.parametrize("username, password, expected", [
-    ("standard_user", "wrong_password", "do not match"),
-    ("", "secret_sauce", "Username is required"),
-    ("standard_user", "", "Password is required"),
-])
-def test_invalid_login_shows_error(driver, username, password, expected): ...
-```
-
-pytest reports each row as its own test, so you see exactly which case failed. The checkout form uses the same idea: `test_checkout_requires_all_details` in [tests/test_cart.py](tests/test_cart.py) leaves each field blank in turn.
-
-### 6. Known bugs and expected failures
-
-saucedemo has users that are broken on purpose: `problem_user` can't sort or check out, `error_user` hits crashes, and `visual_user` shows wrong prices. [tests/test_users.py](tests/test_users.py) runs the same flows as every user and marks the known bugs with `xfail` ("expected to fail"):
-
-```python
-pytest.param("problem_user", marks=pytest.mark.xfail(reason="sorting does nothing", strict=True))
-```
-
-The suite stays green while the bugs exist, and the report still lists them as `xfailed` with the reason. `strict=True` means that if a bug is ever fixed, the test *unexpectedly passes* and turns red, reminding you to remove the marker. Without `strict`, a stale marker could hide a real regression later.
-
-### 7. Screenshots and the HTML report
-
-When a test fails you usually want to see what the browser was showing. [conftest.py](conftest.py) uses a hook, `pytest_runtest_makereport`, which pytest calls after each phase of each test. When the test body (the `call` phase) fails, the hook grabs the test's `driver`, takes a screenshot while the browser is still open, saves it to `screenshots/`, and embeds it in the HTML report.
-
-The report itself comes from the `pytest-html` plugin, switched on in [pytest.ini](pytest.ini) with `--html=report/report.html --self-contained-html` (one file, images included, easy to share).
-
-### 8. Continuous integration
-
-[.github/workflows/tests.yml](.github/workflows/tests.yml) tells GitHub to run the suite automatically on every push to `master` and on every pull request: check out the code, install Python and the dependencies, run `pytest`. It runs four browsers at once (`pytest -n 4`, from the `pytest-xdist` plugin), which is safe because every test gets its own browser and shares nothing. Every run attaches the HTML report as a downloadable artifact, and failed runs also attach the `screenshots/` folder. GitHub's Ubuntu runners include Chrome, so nothing extra is needed. Headless mode (the default here) is what makes this work on a machine with no display.
-
-## Writing a new test
-
-1. **Is there a page object for the page?** If not, add a class in `pages/` with locators and action methods.
-2. **Add a test** in `tests/` named `test_<something>.py`, with functions named `test_<behaviour>`.
-3. **Ask for the fixture you need:** `driver` for a blank browser, `inventory_page` for a logged-in one.
-4. **Assert on outcomes the user would notice** (text on screen, URL, item count), not on implementation details.
-
-Example:
-
-```python
-def test_removing_item_updates_cart_badge(inventory_page):
-    inventory_page.add_first(2)
-    inventory_page.remove_first()
-    assert inventory_page.cart_count() == 1
-```
-
-## Troubleshooting
-
-| Symptom | Likely cause |
-|---|---|
-| `TimeoutException` | The element never appeared: check the locator, or that the earlier step really happened. The failure screenshot shows what the page looked like. |
-| `NoSuchElementException` | The locator matches nothing, or you looked before the page finished loading (use a wait). |
-| `ElementClickInterceptedException` | Something (a popup, overlay) covers the element. |
-| Test passes alone but fails in the full run | Tests are sharing state. Each test should set up everything it needs. |
-| First run is slow | Selenium is downloading chromedriver. Later runs reuse it. |
-| Typing silently does nothing after login | Chrome's password-leak warning is stealing focus. [conftest.py](conftest.py) disables it; keep those `prefs` if you copy the setup elsewhere. |
-
-## Ideas for next steps
-
-- Add a check that inventory pages redirect to login when logged out.
-- Run the suite in Firefox as well as Chrome by parametrizing the `driver` fixture.
+- Cross-browser runs by parametrizing the `driver` fixture for Firefox and Edge.
+- A check that protected pages redirect to login when logged out.
